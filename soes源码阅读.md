@@ -814,3 +814,109 @@ void pdi_isr (void * arg)
 
 
 ![image-20250429061403934](soes源码阅读.assets/image-20250429061403934-17458784457131.png)
+
+
+
+
+
+
+
+# 2. 功能实现
+
+拷贝上的局限：其实同步性能很大程度上取决于拷贝的速度
+
+来看看关键这部分：
+
+比如在DIG_Process中
+
+看到TXPDO_update 和 RXPDO_update
+
+里面有两个关键函数：
+
+COE_pdoPack  和 COE_pdoUnpack
+
+让我们看看他们的实现：
+
+```c++
+void COE_pdoPack (uint8_t * buffer, int nmappings, _SMmap * mappings)
+{
+   int ix;
+
+   /* Check that buffer is aligned on 64-bit boundary */
+   CC_ASSERT (((uintptr_t)buffer & 0x07) == 0);
+
+   for (ix = 0; ix < nmappings; ix++)
+   {
+      const _objd * obj = mappings[ix].obj;
+      uint16_t offset = mappings[ix].offset;
+
+      if (obj != NULL)
+      {
+         if (obj->bitlength > 64)
+         {
+            memcpy (
+               &buffer[BITS2BYTES (offset)],
+               obj->data,
+               BITS2BYTES (obj->bitlength)
+            );
+         }
+         else
+         {
+            /* Atomically get object value */
+            uint64_t value = COE_getValue (obj);
+            COE_bitsliceSet (
+               (uint64_t *)buffer,
+               offset,
+               obj->bitlength,
+               value
+            );
+         }
+      }
+   }
+}
+
+void COE_pdoUnpack (uint8_t * buffer, int nmappings, _SMmap * mappings)
+{
+   int ix;
+
+   /* Check that buffer is aligned on 64-bit boundary */
+   CC_ASSERT (((uintptr_t)buffer & 0x07) == 0);
+
+   for (ix = 0; ix < nmappings; ix++)
+   {
+      const _objd * obj = mappings[ix].obj;
+      uint16_t offset = mappings[ix].offset;
+
+      if (obj != NULL)
+      {
+         if (obj->bitlength > 64)
+         {
+            memcpy (
+               obj->data,
+               &buffer[BITS2BYTES (offset)],
+               BITS2BYTES (obj->bitlength)
+            );
+         }
+         else
+         {
+            /* Atomically set object value */
+            uint64_t value = COE_bitsliceGet (
+               (uint64_t *)buffer,
+               offset,
+               obj->bitlength
+            );
+            COE_setValue (obj, value);
+         }
+      }
+   }
+}
+```
+
+ 
+
+
+
+
+
+# 3. 改进尝试
+
